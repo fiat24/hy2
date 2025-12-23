@@ -244,14 +244,16 @@ insthysteria(){
     fi
 
     if [[ ! ${SYSTEM} == "CentOS" ]]; then
-        ${PACKAGE_UPDATE}
+        ${PACKAGE_UPDATE[int]}
     fi
     
+    # Install dependencies first, before any operations
     if [[ $SYSTEM == "Alpine" ]]; then
-        ${PACKAGE_INSTALL} curl wget sudo qrencode procps iptables ip6tables openrc
+        ${PACKAGE_INSTALL[int]} curl wget sudo qrencode procps iptables ip6tables openrc openssl iproute2
     else
-        ${PACKAGE_INSTALL} curl wget sudo qrencode procps iptables-persistent netfilter-persistent
+        ${PACKAGE_INSTALL[int]} curl wget sudo qrencode procps iptables-persistent netfilter-persistent
     fi
+
 
     wget -N https://raw.githubusercontent.com/Misaka-blog/hysteria-install/main/hy2/install_server.sh
     
@@ -333,7 +335,7 @@ EOF
         last_ip=$ip
     fi
 
-    mkdir /root/hy
+    mkdir -p /root/hy
     cat << EOF > /root/hy/hy-client.yaml
 server: $last_ip:$last_port
 
@@ -399,7 +401,7 @@ dns:
     - 1.1.1.1
     - 114.114.114.114
 proxies:
-  - name: Misaka-Hysteria2
+  - name: Finn-Hysteria2
     type: hysteria2
     server: $last_ip
     port: $port
@@ -410,22 +412,39 @@ proxy-groups:
   - name: Proxy
     type: select
     proxies:
-      - Misaka-Hysteria2
+      - Finn-Hysteria2
       
 rules:
   - GEOIP,CN,DIRECT
   - MATCH,Proxy
 EOF
-    url="hysteria2://$auth_pwd@$last_ip:$last_port/?insecure=1&sni=$hy_domain#Misaka-Hysteria2"
+    url="hysteria2://$auth_pwd@$last_ip:$last_port/?insecure=1&sni=$hy_domain#Finn-Hysteria2"
     echo $url > /root/hy/url.txt
 
     systemctl daemon-reload
     systemctl enable hysteria-server
     systemctl start hysteria-server
-    if [[ -n $(systemctl status hysteria-server 2>/dev/null | grep -w active) && -f '/etc/hysteria/config.yaml' ]]; then
-        green "Hysteria 2 服务启动成功"
+    
+    sleep 2
+    
+    if [[ $SYSTEM == "Alpine" ]]; then
+        service_status=$(rc-service hysteria-server status 2>&1)
+        if [[ -f '/etc/hysteria/config.yaml' ]] && ([[ $service_status =~ "started" ]] || [[ $service_status =~ "already been started" ]]); then
+            green "Hysteria 2 服务启动成功"
+        else
+            red "Hysteria 2 服务启动失败，请运行 rc-service hysteria-server status 查看服务状态并反馈"
+            yellow "服务状态: $service_status"
+            if [[ ! -f '/etc/hysteria/cert.crt' ]] || [[ ! -f '/etc/hysteria/private.key' ]]; then
+                red "证书文件缺失，请检查 openssl 是否正确安装"
+            fi
+            exit 1
+        fi
     else
-        red "Hysteria 2 服务启动失败，请运行 systemctl status hysteria-server 查看服务状态并反馈，脚本退出" && exit 1
+        if [[ -n $(systemctl status hysteria-server 2>/dev/null | grep -w active) && -f '/etc/hysteria/config.yaml' ]]; then
+            green "Hysteria 2 服务启动成功"
+        else
+            red "Hysteria 2 服务启动失败，请运行 systemctl status hysteria-server 查看服务状态并反馈，脚本退出" && exit 1
+        fi
     fi
     red "======================================================================================"
     green "Hysteria 2 代理服务安装完成"
@@ -580,13 +599,6 @@ menu() {
     clear
     echo "#############################################################"
     echo -e "#                  ${RED}Hysteria 2 一键安装脚本${PLAIN}                #"
-    echo -e "# ${GREEN}作者${PLAIN}: AMCTEAMS AMC跨境社区                            #"
-    echo -e "# ${GREEN}博客${PLAIN}: https://www.tkstart.com                        #"
-    echo -e "# ${GREEN}GitHub 项目${PLAIN}: https://github.com/amcteams             #"
-    echo -e "# ${GREEN}GitLab 项目${PLAIN}: https://gitlab.com/amcteams             #"
-    echo -e "# ${GREEN}Telegram 频道${PLAIN}: https://t.me/amcteams                 #"
-    echo -e "# ${GREEN}Telegram 群组${PLAIN}: https://t.me/+OpogS1V6Q8dlOWVh        #"
-    echo -e "# ${GREEN}YouTube 频道${PLAIN}: https://www.youtube.com/@amcteams      #"
     echo "#############################################################"
     echo ""
     echo -e " ${GREEN}1.${PLAIN} 安装 Hysteria 2"
