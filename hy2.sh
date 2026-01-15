@@ -165,6 +165,7 @@ inst_cert(){
 
         cert_path="/etc/hysteria/cert.crt"
         key_path="/etc/hysteria/private.key"
+        mkdir -p /etc/hysteria
         openssl ecparam -genkey -name prime256v1 -out /etc/hysteria/private.key
         openssl req -new -x509 -days 36500 -key /etc/hysteria/private.key -out /etc/hysteria/cert.crt -subj "/CN=www.bing.com"
         chmod 644 /etc/hysteria/cert.crt
