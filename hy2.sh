@@ -469,6 +469,22 @@ EOF
     url="hysteria2://$auth_pwd@$last_ip:$last_port/?insecure=1&sni=$hy_domain#Finn-Hysteria2"
     echo $url > /root/hy/url.txt
 
+    # 在启动服务前，先手动运行一次检查配置是否正确，并捕获输出
+    green "正在通过试运行检查 Hysteria 配置..."
+    if ! timeout 5s /usr/local/bin/hysteria server --config /etc/hysteria/config.yaml >/tmp/hy_debug.log 2>&1; then
+        # 这里的 timeout 是为了防止它成功运行卡住脚本。如果 5秒内退出了，check返回值，如果是 timeout(124) 说明运行正常。
+        exit_code=$?
+        if [[ $exit_code -ne 124 ]]; then 
+            red "Hysteria 2 试运行失败！配置可能存在错误。"
+            red "============ 错误日志 ============"
+            cat /tmp/hy_debug.log
+            red "=================================="
+            exit 1
+        else
+            green "配置检查通过，准备启动服务..."
+        fi
+    fi
+
     systemctl daemon-reload
     systemctl enable hysteria-server
     systemctl start hysteria-server
@@ -491,7 +507,11 @@ EOF
         if [[ -n $(systemctl status hysteria-server 2>/dev/null | grep -w active) && -f '/etc/hysteria/config.yaml' ]]; then
             green "Hysteria 2 服务启动成功"
         else
-            red "Hysteria 2 服务启动失败，请运行 systemctl status hysteria-server 查看服务状态并反馈，脚本退出" && exit 1
+            red "Hysteria 2 服务启动失败，请运行 systemctl status hysteria-server 查看服务状态并反馈，脚本退出"
+            red "============ Journalctl 日志 ============"
+            journalctl -u hysteria-server --no-pager -n 20
+            red "========================================="
+            exit 1
         fi
     fi
     red "======================================================================================"
