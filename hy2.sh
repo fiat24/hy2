@@ -344,6 +344,7 @@ EOF
     inst_site
 
     # 设置 Hysteria 配置文件
+    mkdir -p /etc/hysteria
     cat << EOF > /etc/hysteria/config.yaml
 listen: :$port
 
