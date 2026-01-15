@@ -299,9 +299,9 @@ WorkingDirectory=/etc/hysteria
 User=root
 Group=root
 Environment=HYSTERIA_LOG_LEVEL=info
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
-NoNewPrivileges=true
+# CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+# AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+# NoNewPrivileges=true
 Restart=always
 RestartSec=5
 
@@ -471,18 +471,18 @@ EOF
 
     # 在启动服务前，先手动运行一次检查配置是否正确，并捕获输出
     green "正在通过试运行检查 Hysteria 配置..."
-    if ! timeout 5s /usr/local/bin/hysteria server --config /etc/hysteria/config.yaml >/tmp/hy_debug.log 2>&1; then
-        # 这里的 timeout 是为了防止它成功运行卡住脚本。如果 5秒内退出了，check返回值，如果是 timeout(124) 说明运行正常。
-        exit_code=$?
-        if [[ $exit_code -ne 124 ]]; then 
-            red "Hysteria 2 试运行失败！配置可能存在错误。"
-            red "============ 错误日志 ============"
-            cat /tmp/hy_debug.log
-            red "=================================="
-            exit 1
-        else
-            green "配置检查通过，准备启动服务..."
-        fi
+    # 尝试运行5秒
+    timeout 5s /usr/local/bin/hysteria server --config /etc/hysteria/config.yaml >/tmp/hy_debug.log 2>&1
+    
+    # 检查日志中是否有成功启动的标志
+    if grep -q "server up and running" /tmp/hy_debug.log; then
+        green "配置无需，Hysteria 试运行正常！"
+    else
+        red "Hysteria 2 试运行失败！配置可能存在错误。"
+        red "============ 错误日志 ============"
+        cat /tmp/hy_debug.log
+        red "=================================="
+        exit 1
     fi
 
     systemctl daemon-reload
