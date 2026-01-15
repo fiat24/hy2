@@ -167,8 +167,8 @@ inst_cert(){
         key_path="/etc/hysteria/private.key"
         openssl ecparam -genkey -name prime256v1 -out /etc/hysteria/private.key
         openssl req -new -x509 -days 36500 -key /etc/hysteria/private.key -out /etc/hysteria/cert.crt -subj "/CN=www.bing.com"
-        chmod 777 /etc/hysteria/cert.crt
-        chmod 777 /etc/hysteria/private.key
+        chmod 644 /etc/hysteria/cert.crt
+        chmod 600 /etc/hysteria/private.key
         hy_domain="www.bing.com"
         domain="www.bing.com"
     fi
@@ -255,14 +255,61 @@ insthysteria(){
     fi
 
 
-    wget -N https://raw.githubusercontent.com/Misaka-blog/hysteria-install/main/hy2/install_server.sh
-    
-    if [[ $SYSTEM == "Alpine" ]]; then
-        export FORCE_NO_SYSTEMD=2
+    # 获取系统架构
+    arch=$(uname -m)
+    case $arch in
+        x86_64) arch="amd64" ;;
+        aarch64) arch="arm64" ;;
+        armv7l) arch="arm" ;;
+        s390x) arch="s390x" ;;
+        mips64) arch="mips64le" ;;
+        *) red "不支持的架构: $arch"; exit 1 ;;
+    esac
+
+    green "正在获取 Hysteria 2 最新版本信息..."
+    latest_version=$(curl -s https://api.github.com/repos/apernet/hysteria/releases/latest | grep 'tag_name' | cut -d\" -f4)
+    if [[ -z "$latest_version" ]]; then
+        red "获取 Hysteria 最新版本失败，请检查网络连接。"
+        exit 1
     fi
+ 
     
-    bash install_server.sh
-    rm -f install_server.sh
+    download_url="https://github.com/apernet/hysteria/releases/download/${latest_version}/hysteria-linux-${arch}"
+    
+    green "开始下载 Hysteria 2 ($latest_version)..."
+    wget -O /usr/local/bin/hysteria "$download_url"
+    
+    if [[ ! -f "/usr/local/bin/hysteria" ]]; then
+        red "下载失败，请检查网络或 URL: $download_url"
+        exit 1
+    fi
+    chmod 755 /usr/local/bin/hysteria
+
+    # 创建 Systemd 服务文件 (非 Alpine)
+    if [[ $SYSTEM != "Alpine" ]]; then
+        cat << EOF > /etc/systemd/system/hysteria-server.service
+[Unit]
+Description=Hysteria 2 Server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/hysteria server --config /etc/hysteria/config.yaml
+WorkingDirectory=/etc/hysteria
+User=root
+Group=root
+Environment=HYSTERIA_LOG_LEVEL=info
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+NoNewPrivileges=true
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        systemctl daemon-reload
+    fi
     
     if [[ $SYSTEM == "Alpine" ]]; then
         cat << 'EOF' > /etc/init.d/hysteria-server
@@ -496,7 +543,7 @@ hysteriaswitch(){
 }
 
 changeport(){
-    oldport=$(cat /etc/hysteria/config.yaml 2>/dev/null | sed -n 1p | awk '{print $2}' | awk -F ":" '{print $2}')
+    oldport=$(grep "^listen: :" /etc/hysteria/config.yaml | cut -d: -f3)
     
     read -p "设置 Hysteria 2 端口[1-65535]（回车则随机分配端口）：" port
     [[ -z $port ]] && port=$(shuf -i 2000-65535 -n 1)
@@ -509,9 +556,11 @@ changeport(){
         fi
     done
 
-    sed -i "1s#$oldport#$port#g" /etc/hysteria/config.yaml
-    sed -i "1s#$oldport#$port#g" /root/hy/hy-client.yaml
-    sed -i "2s#$oldport#$port#g" /root/hy/hy-client.json
+    sed -i "s/^listen: :.*/listen: :$port/" /etc/hysteria/config.yaml
+    sed -i "s/^server: .*/server: $last_ip:$port/" /root/hy/hy-client.yaml
+    # JSON 文件的修改比较麻烦，暂时保留 sed 行号或者用更精确的匹配。这里为了安全还是用行号但加一些上下文检查，或者简单用 python/jq ? 不，保持 bash。
+    # 这里的 hy-client.json 是脚本生成的，格式相对固定，用 sed 匹配内容替换
+    sed -i "s/\"server\": \".*\"/\"server\": \"$last_ip:$port\"/" /root/hy/hy-client.json
 
     stophysteria && starthysteria
 
@@ -521,14 +570,14 @@ changeport(){
 }
 
 changepasswd(){
-    oldpasswd=$(cat /etc/hysteria/config.yaml 2>/dev/null | sed -n 15p | awk '{print $2}')
+    oldpasswd=$(grep "password: " /etc/hysteria/config.yaml | awk '{print $2}')
 
     read -p "设置 Hysteria 2 密码（回车跳过为随机字符）：" passwd
     [[ -z $passwd ]] && passwd=$(date +%s%N | md5sum | cut -c 1-8)
 
-    sed -i "1s#$oldpasswd#$passwd#g" /etc/hysteria/config.yaml
-    sed -i "1s#$oldpasswd#$passwd#g" /root/hy/hy-client.yaml
-    sed -i "3s#$oldpasswd#$passwd#g" /root/hy/hy-client.json
+    sed -i "s/^  password: .*/  password: $passwd/" /etc/hysteria/config.yaml
+    sed -i "s/^auth: .*/auth: $passwd/" /root/hy/hy-client.yaml
+    sed -i "s/\"auth\": \".*\"/\"auth\": \"$passwd\"/" /root/hy/hy-client.json
 
     stophysteria && starthysteria
 
@@ -561,7 +610,7 @@ changeproxysite(){
     
     inst_site
 
-    sed -i "s#$oldproxysite#$proxysite#g" /etc/caddy/Caddyfile
+    sed -i "s#$oldproxysite#$proxysite#g" /etc/hysteria/config.yaml
 
     stophysteria && starthysteria
 
