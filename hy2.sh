@@ -477,7 +477,7 @@ EOF
     
     # 检查日志中是否有成功启动的标志
     if grep -q "server up and running" /tmp/hy_debug.log; then
-        green "配置无需，Hysteria 试运行正常！"
+        green "配置无误，Hysteria 试运行正常！"
     else
         red "Hysteria 2 试运行失败！配置可能存在错误。"
         red "============ 错误日志 ============"
